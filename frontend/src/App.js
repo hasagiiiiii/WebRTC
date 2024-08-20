@@ -8,6 +8,7 @@ function App() {
   const [roomId, setRoomId] = useState(20);
   const [peer, setPeer] = useState(null);
   const [myStream, setMyStream] = useState(null);
+  const [peerScreen,setPeerScreen] = useState(null)
   const [isRoom, setIsRoom] = useState(false);
   const VideoRef = useRef({}); //Object lưu trữ tài liệu video theo userId
   const [peerInRooms, setPeerInRoom] = useState({}); // Object lưu trữ peer connection by userId
@@ -71,23 +72,22 @@ function App() {
             });
         }
       });
+      
+    }
+  }, [myStream, peer, socket,myPeerID]);
+  useEffect(()=>{
+    if (socket) {
       socket.on("shareScreenInRoom",(idUser)=>{
+        console.log(peerInRooms[idUser])
         if (peer && idUser !== myPeerID) {
-          const call = peer.call(idUser,myStream)
-          call.on("stream",(userVideoStream)=>{
-            const existingVideo = document.querySelector(`video[data-userId="${idUser}"]`);
-            if (existingVideo) {
-              existingVideo.srcObject = userVideoStream;
-              } else {
-                const video = document.createElement("video");
-                addVideoStream(video,userVideoStream,idUser)
-              }
-          })
+          console.log("vao day")
+         navigator.mediaDevices.getUserMedia({video:true,audio:false}).then(stream=>{
+          UserShareScreen(idUser,peer,stream)
+         })
         }
       })
     }
-  }, [myStream, peer, socket,myPeerID]);
-
+  },[peerScreen,peer,socket,myPeerID,shareScreenTrack])
   const handleCreateRoom = () => {
     const myPeer = new Peer(); // Tạo và kết nối tới Peer
     setPeer(myPeer); // set Peer mới được tạo vào state
@@ -148,7 +148,27 @@ function App() {
           });
         });
       });
-  };
+   };
+  const setUpUserShareScreen = (peer,peerId,streamScreen)=>{
+
+      const video = document.createElement("video");
+      video.muted = true
+      if(!VideoRef.current[peerId]){
+        VideoRef.current[peerId] = streamScreen
+        addVideoStream(video,streamScreen,myPeerID)
+      }
+      peer.on("call",(call)=>{
+        call.answer(streamScreen);
+        const video = document.createElement("video")
+        call.on("stream",(userVideoStream)=>{
+          if(!VideoRef.current[call.peer]){
+            addVideoStream(video,userVideoStream,call.peer)
+            VideoRef.current[call.peer] = userVideoStream
+          }
+        })
+      })
+    
+  }
   const connectToNewUser = (userId, stream, peer) => {
     if (userId && !peerInRooms[userId]) {
       const call = peer.call(userId, stream);
@@ -179,6 +199,25 @@ function App() {
       console.error(`Invalid userId: ${userId}`);
     }
   };
+  const UserShareScreen = (userId,peer,stream)=>{
+    console.log("userID:",userId)
+    console.log("stream",stream)
+    if(userId && peer && peer.call){
+      const call = peer.call(userId,stream)
+      console.log(call)
+        call.on("stream",(userVideoStream)=>{
+          const video = document.createElement("video")
+          console.log("Stream In ShareScreen" , userVideoStream)
+          if(!VideoRef.current[userId]){
+            addVideoStream(video,userVideoStream,userId)
+            VideoRef.current[userId] = userVideoStream
+          }
+        })
+        call.on("close",()=>{
+          handleCallClose(userId)
+        })
+    }
+  }
   const addVideoStream = (video, stream, userId) => {
     video.srcObject = stream;
     video.addEventListener("loadedmetadata", () => {
@@ -215,60 +254,14 @@ function App() {
     }
   };
   const hanldeShareScreen = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-      });
-      const screenTrack = stream.getVideoTracks()[0];
-
-      if (socket) {
-        socket.emit("shareScreenInRoom", myPeerID, roomId);
-      }
-
-      Object.values(peerInRooms).forEach(({ peerConnection, senders }) => {
-        if (peerConnection) {
-          const sender = senders.find((s) => s.track.kind === "video");
-          if (sender) {
-            sender.replaceTrack(screenTrack);
-          }
-        } else {
-          console.error(`PeerConnection not found for a peer`);
-        }
-      });
-
-      const myVideo = document.createElement("video");
-      addVideoStream(myVideo, stream, myPeerID);
-
-      screenTrack.onended = () => {
-        // Khi dừng chia sẻ màn hình, thay thế lại bằng userMedia
-        stopScreenSharing();
-      };
-    } catch (error) {
-      console.error("Error sharing screen:", error);
-    }
-  };
-
-  const stopScreenSharing = () => {
-    if (myStream) {
-      const cameraTrack = myStream.getVideoTracks()[0];
-  
-      Object.values(peerInRooms).forEach(({ peerConnection, senders }) => {
-        if (peerConnection) {
-          const sender = senders.find(s => s.track.kind === 'video');
-          if (sender) {
-            sender.replaceTrack(cameraTrack);
-          }
-        }
-      });
-  
-      // Replace screen share with your camera video
-      // const myVideo = document.querySelector(`video[data-userId="${myPeerID}"]`);
-      // if (myVideo) {
-      //   myVideo.srcObject = myStream;
-      // }
-  
-      setShareScreenTrack(null);
-    }
+    const peerStream = new Peer()
+    setPeerScreen(peerStream)
+    peerStream.on("open",async (id)=>{
+      const streamScreen = await navigator.mediaDevices.getDisplayMedia({video:true})
+      setShareScreenTrack(streamScreen) // Luu lai man hinh chia se
+      socket.emit("shareScreenInRoom",id,roomId)
+      setUpUserShareScreen(peerStream,id,streamScreen)
+    })  
   };
   return (
     <div className="App">
