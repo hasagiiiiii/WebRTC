@@ -3,7 +3,7 @@ const http = require('http');
 const socketIO = require('socket.io');
 const cors = require('cors');
 const { v4 } = require('uuid');
-
+const {PeerServer} = require("peer")
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
@@ -21,6 +21,8 @@ app.get("/login",(req,res)=>{
     res.json(idUser)
 })
 
+
+// const peerServer = PeerServer({path:"/peerjs",port:9000})
 
 
 io.on("connection", (socket) => { // connect
